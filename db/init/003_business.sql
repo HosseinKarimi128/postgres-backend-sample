@@ -1,31 +1,31 @@
-create function api.create_project_with_first_task(name text, task_title text)
-returns api.projects language plpgsql security invoker as $$
-declare p app.projects;
-declare result api.projects;
-begin
-  insert into app.projects(name) values (create_project_with_first_task.name) returning * into p;
-  insert into app.tasks(project_id, title) values (p.id, create_project_with_first_task.task_title);
-  select p.id, p.name, p.created_at into result;
-  return result;
-end
+CREATE FUNCTION api.create_project_with_first_task(name text, task_title text)
+RETURNS api.projects LANGUAGE plpgsql SECURITY INVOKER AS $$
+DECLARE p app.projects;
+DECLARE result api.projects;
+BEGIN
+  INSERT INTO app.projects(name) VALUES (create_project_with_first_task.name) RETURNING * INTO p;
+  INSERT INTO app.tasks(project_id, title) VALUES (p.id, create_project_with_first_task.task_title);
+  SELECT p.id, p.name, p.created_at INTO result;
+  RETURN result;
+END
 $$;
 
-create function api.complete_task(task_id uuid) returns api.tasks
-language plpgsql security invoker as $$
-declare result api.tasks;
-begin
-  update app.tasks set completed_at = coalesce(completed_at, now()) where id = complete_task.task_id
-  returning id, project_id, title, completed_at, created_at into result;
-  if not found then raise exception 'task not found' using errcode = 'P0002'; end if;
-  return result;
-end
+CREATE FUNCTION api.complete_task(task_id uuid) RETURNS api.tasks
+LANGUAGE plpgsql SECURITY INVOKER AS $$
+DECLARE result api.tasks;
+BEGIN
+  UPDATE app.tasks SET completed_at = COALESCE(completed_at, now()) WHERE id = complete_task.task_id
+  RETURNING id, project_id, title, completed_at, created_at INTO result;
+  IF NOT FOUND THEN RAISE EXCEPTION 'task not found' USING ERRCODE = 'P0002'; END IF;
+  RETURN result;
+END
 $$;
 
-create view api.project_stats with (security_invoker = true) as
-select p.id, p.name, count(t.id)::integer as task_count,
-       count(t.id) filter (where t.completed_at is not null)::integer as completed_count
-from app.projects p left join app.tasks t on t.project_id = p.id
-group by p.id, p.name;
+CREATE VIEW api.project_stats WITH (security_invoker = TRUE) AS
+SELECT p.id, p.name, count(t.id)::integer AS task_count,
+       count(t.id) FILTER (WHERE t.completed_at IS NOT NULL)::integer AS completed_count
+FROM app.projects p LEFT JOIN app.tasks t ON t.project_id = p.id
+GROUP BY p.id, p.name;
 
-grant select on api.project_stats to authenticated;
-grant execute on function api.create_project_with_first_task(text, text), api.complete_task(uuid) to authenticated;
+GRANT SELECT ON api.project_stats TO authenticated;
+GRANT EXECUTE ON FUNCTION api.create_project_with_first_task(text, text), api.complete_task(uuid) TO authenticated;
