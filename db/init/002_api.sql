@@ -28,9 +28,9 @@ create function api.register(email text, password text) returns json
 language plpgsql security definer set search_path = pg_catalog, public, app as $$
 declare u app.users;
 begin
-  if length(password) < 12 then raise exception 'password must contain at least 12 characters' using errcode = '22023'; end if;
+  if length(register.password) < 12 then raise exception 'password must contain at least 12 characters' using errcode = '22023'; end if;
   insert into app.users(email, password_hash)
-  values (lower(trim(email)), crypt(password, gen_salt('bf', 12))) returning * into u;
+  values (lower(trim(register.email)), crypt(register.password, gen_salt('bf', 12))) returning * into u;
   return json_build_object('token', app.issue_token(u), 'user', json_build_object('id', u.id, 'email', u.email));
 exception when unique_violation then
   raise exception 'email is already registered' using errcode = '23505';
@@ -42,7 +42,7 @@ language plpgsql security definer set search_path = pg_catalog, public, app as $
 declare u app.users;
 begin
   select * into u from app.users where users.email = lower(trim(login.email));
-  if u.id is null or u.password_hash <> crypt(password, u.password_hash) then
+  if u.id is null or u.password_hash <> crypt(login.password, u.password_hash) then
     raise exception 'invalid credentials' using errcode = '28P01';
   end if;
   return json_build_object('token', app.issue_token(u), 'user', json_build_object('id', u.id, 'email', u.email));
@@ -50,10 +50,10 @@ end
 $$;
 
 create function api.me() returns table(id uuid, email text, created_at timestamptz)
-language sql stable security invoker as $$
+language sql stable security definer
+set search_path = pg_catalog, public, app as $$
   select id, email, created_at from app.users where id = app.current_user_id()
 $$;
 
 grant execute on function api.register(text, text), api.login(text, text) to anon;
 grant execute on function api.me() to authenticated;
-grant select on app.users to authenticated;
