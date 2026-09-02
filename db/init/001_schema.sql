@@ -1,71 +1,71 @@
-create extension if not exists pgcrypto;
-create schema app;
-create schema api;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+CREATE SCHEMA app;
+CREATE SCHEMA api;
 
-create role anon nologin;
-create role authenticated nologin;
-grant anon, authenticated to current_user;
-grant usage on schema api to anon, authenticated;
+CREATE ROLE anon NOLOGIN;
+CREATE ROLE authenticated NOLOGIN;
+GRANT anon, authenticated TO CURRENT_USER;
+GRANT USAGE ON SCHEMA api TO anon, authenticated;
 
-create table app.users (
-  id uuid primary key default gen_random_uuid(),
-  email text not null unique check (email = lower(email)),
-  password_hash text not null,
-  created_at timestamptz not null default now()
+CREATE TABLE app.users (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  email text NOT NULL UNIQUE CHECK (email = lower(email)),
+  password_hash text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
 );
 
-create table app.projects (
-  id uuid primary key default gen_random_uuid(),
-  owner_id uuid not null references app.users(id) on delete cascade,
-  name text not null check (length(trim(name)) between 1 and 120),
-  created_at timestamptz not null default now()
+CREATE TABLE app.projects (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  owner_id uuid NOT NULL REFERENCES app.users(id) ON DELETE CASCADE,
+  name text NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 120),
+  created_at timestamptz NOT NULL DEFAULT now()
 );
 
-create table app.tasks (
-  id uuid primary key default gen_random_uuid(),
-  project_id uuid not null references app.projects(id) on delete cascade,
-  owner_id uuid not null references app.users(id) on delete cascade,
-  title text not null check (length(trim(title)) between 1 and 200),
+CREATE TABLE app.tasks (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id uuid NOT NULL REFERENCES app.projects(id) ON DELETE CASCADE,
+  owner_id uuid NOT NULL REFERENCES app.users(id) ON DELETE CASCADE,
+  title text NOT NULL CHECK (length(trim(title)) BETWEEN 1 AND 200),
   completed_at timestamptz,
-  created_at timestamptz not null default now()
+  created_at timestamptz NOT NULL DEFAULT now()
 );
 
-create index projects_owner_id_idx on app.projects(owner_id);
-create index tasks_owner_id_idx on app.tasks(owner_id);
-create index tasks_project_id_idx on app.tasks(project_id);
+CREATE INDEX projects_owner_id_idx ON app.projects(owner_id);
+CREATE INDEX tasks_owner_id_idx ON app.tasks(owner_id);
+CREATE INDEX tasks_project_id_idx ON app.tasks(project_id);
 
-create function app.current_user_id() returns uuid
-language sql stable as $$
-  select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+CREATE FUNCTION app.current_user_id() RETURNS uuid
+LANGUAGE sql STABLE AS $$
+  SELECT NULLIF(CURRENT_SETTING('request.jwt.claim.sub', TRUE), '')::uuid
 $$;
 
-create function app.set_owner_id() returns trigger language plpgsql as $$
-begin
-  new.owner_id := app.current_user_id();
-  return new;
-end
+CREATE FUNCTION app.set_owner_id() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  NEW.owner_id := app.current_user_id();
+  RETURN NEW;
+END
 $$;
 
-create trigger projects_set_owner before insert on app.projects
-for each row execute function app.set_owner_id();
-create trigger tasks_set_owner before insert on app.tasks
-for each row execute function app.set_owner_id();
+CREATE TRIGGER projects_set_owner BEFORE INSERT ON app.projects
+FOR EACH ROW EXECUTE FUNCTION app.set_owner_id();
+CREATE TRIGGER tasks_set_owner BEFORE INSERT ON app.tasks
+FOR EACH ROW EXECUTE FUNCTION app.set_owner_id();
 
-alter table app.projects enable row level security;
-alter table app.tasks enable row level security;
+ALTER TABLE app.projects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.tasks ENABLE ROW LEVEL SECURITY;
 
-create policy projects_owned on app.projects for all to authenticated
-using (owner_id = app.current_user_id())
-with check (owner_id = app.current_user_id());
+CREATE POLICY projects_owned ON app.projects FOR ALL TO authenticated
+USING (owner_id = app.current_user_id())
+WITH CHECK (owner_id = app.current_user_id());
 
-create policy tasks_owned on app.tasks for all to authenticated
-using (owner_id = app.current_user_id())
-with check (
+CREATE POLICY tasks_owned ON app.tasks FOR ALL TO authenticated
+USING (owner_id = app.current_user_id())
+WITH CHECK (
   owner_id = app.current_user_id()
-  and exists (select 1 from app.projects p where p.id = project_id and p.owner_id = app.current_user_id())
+  AND EXISTS (SELECT 1 FROM app.projects p WHERE p.id = project_id AND p.owner_id = app.current_user_id())
 );
 
-grant select, insert, update, delete on app.projects, app.tasks to authenticated;
-create view api.projects with (security_invoker = true) as select id, name, created_at from app.projects;
-create view api.tasks with (security_invoker = true) as select id, project_id, title, completed_at, created_at from app.tasks;
-grant select, insert, update, delete on api.projects, api.tasks to authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON app.projects, app.tasks TO authenticated;
+CREATE VIEW api.projects WITH (security_invoker = TRUE) AS SELECT id, name, created_at FROM app.projects;
+CREATE VIEW api.tasks WITH (security_invoker = TRUE) AS SELECT id, project_id, title, completed_at, created_at FROM app.tasks;
+GRANT SELECT, INSERT, UPDATE, DELETE ON api.projects, api.tasks TO authenticated;
